@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"rpi-sensors/devices/sht31"
 	"syscall"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"periph.io/x/periph/conn/pin"
 	"periph.io/x/periph/conn/pin/pinreg"
 	"periph.io/x/periph/host"
-	"periph.io/x/periph/host/rpi"
 )
 
 func printPin(fn string, p pin.Pin) {
@@ -48,40 +48,44 @@ func main() {
 		printPin("SDA", p.SDA())
 	}
 
-	device := &i2c.Dev{Addr: 0x44, Bus: bus}
-	// readStatus := []byte{0xF32D}
+	deviceConn := &i2c.Dev{Addr: sht31.MainI2CAddress, Bus: bus}
+	// sht31.NewI2C(bus)
 
-	// is heater enabled ?
-	/*
-		if err := device.Tx(readStatus, nil); err != nil {
-			log.Fatal(err)
-		}
-	*/
+	stopPeriodicMeasureCmd := []byte{0x30, 0x93}
+	if err := deviceConn.Tx(stopPeriodicMeasureCmd, nil); err != nil {
+		log.Fatal(err)
+	}
+
+	startPeriodicMeasureCmd := []byte{sht31.CmdPeriodicMeasurementOnePerSecMsb, 0x30}
+	if err := deviceConn.Tx(startPeriodicMeasureCmd, nil); err != nil {
+		log.Fatal(err)
+	}
+
+	time.Sleep(1 * time.Second)
 
 	t := time.NewTicker(1 * time.Second)
 	for l := gpio.Low; ; l = !l {
-		if err := rpi.P1_40.Out(l); err != nil {
+		readoutPeriodicMeasureCmd := []byte{sht31.CmdPeriodicReadoutMsb, sht31.CmdPeriodicReadoutLsb}
+		values := make([]byte, 6) // First two bytes byte are temp, Third are temp CRC, Fourth & Fivest bytes are humidity & Sixth is humidity CRC
+		if err := deviceConn.Tx(readoutPeriodicMeasureCmd, values); err != nil {
+			fmt.Println("oh no !")
 			log.Fatal(err)
 		}
-
-		requestWrite := []byte{0x24}
-		getValuesRead1 := make([]byte, 6)
-		if err := device.Tx(requestWrite, getValuesRead1); err != nil {
-			log.Fatal(err)
-		}
-
-		// fmt.Println("Sent values request")
-
-		time.Sleep(200 * time.Millisecond)
-
-		getValuesRead := make([]byte, 6)
-		if err := device.Tx(nil, getValuesRead); err != nil {
-			log.Fatal(err)
-		}
-
-		// fmt.Println(getValuesRead)
+		// @TODO ensure CRC checksums are correct
+		fmt.Println(fmt.Sprintf("Temperature: %d°C; Humidity: %d%%", ToTemperatureCelsius(values), ToRelativeHumidity(values)))
 		<-t.C
 	}
+}
+
+// ToRelativeHumidity computes the relative humidity percentage
+func ToRelativeHumidity(val []byte) int {
+	return 100 * (int(val[3])*256 + int(val[4])) / 65535.0
+}
+
+// ToTemperatureCelsius computes the temperature
+func ToTemperatureCelsius(val []byte) int {
+	temperature := int(val[0])*256 + int(val[1])
+	return -45 + (175 * temperature / 65535.0)
 }
 
 func init() {
@@ -89,8 +93,9 @@ func init() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		rpi.P1_40.Out(gpio.Low)
+		// rpi.P1_40.Out(gpio.Low)
 		// Run Cleanup
+		fmt.Println("Gracefully stopping the app")
 		os.Exit(1)
 	}()
 }
