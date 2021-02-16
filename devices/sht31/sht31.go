@@ -57,6 +57,17 @@ func (d *Dev) ReadoutMeasure() (chan Measure, error) {
 	return nil, nil
 }
 
+// ToTemperatureCelsius converts the byte payload into celsius temperature
+func ToTemperatureCelsius(data []byte) float32 {
+	temperature := float32(data[0])*256 + float32(data[1])
+	return -45 + (175 * temperature / 65535.0)
+}
+
+// ToRelativeHumidity converts the byte payload into the relative humidity percentage
+func ToRelativeHumidity(val []byte) float32 {
+	return 100 * (float32(val[3])*256 + float32(val[4])) / 65535.0
+}
+
 const (
 	MainI2CAddress = 0x44 // default I2C Address
 

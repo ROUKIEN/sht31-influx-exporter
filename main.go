@@ -92,11 +92,11 @@ func main() {
 			log.Fatal(err)
 		}
 		// @TODO ensure CRC checksums are correct
-		fmt.Println(fmt.Sprintf("Temperature: %d°C; Humidity: %d%%", ToTemperatureCelsius(values), ToRelativeHumidity(values)))
+		// fmt.Println(fmt.Sprintf("Temperature: %f°C; Humidity: %f%%", sht31.ToTemperatureCelsius(values), sht31.ToRelativeHumidity(values)))
 
 		// write line protocol
-		writeAPI.WriteRecord(fmt.Sprintf("temperature,device=%s value=%d", deviceID, ToTemperatureCelsius(values)))
-		writeAPI.WriteRecord(fmt.Sprintf("humidity,device=%s value=%d", deviceID, ToRelativeHumidity(values)))
+		writeAPI.WriteRecord(fmt.Sprintf("temperature,device=%s value=%f", deviceID, sht31.ToTemperatureCelsius(values)))
+		writeAPI.WriteRecord(fmt.Sprintf("humidity,device=%s value=%f", deviceID, sht31.ToRelativeHumidity(values)))
 
 		// Flush writes
 		if i > 5*60 {
@@ -107,17 +107,6 @@ func main() {
 		}
 		<-t.C
 	}
-}
-
-// ToRelativeHumidity computes the relative humidity percentage
-func ToRelativeHumidity(val []byte) int {
-	return 100 * (int(val[3])*256 + int(val[4])) / 65535.0
-}
-
-// ToTemperatureCelsius computes the temperature
-func ToTemperatureCelsius(val []byte) int {
-	temperature := int(val[0])*256 + int(val[1])
-	return -45 + (175 * temperature / 65535.0)
 }
 
 func init() {
