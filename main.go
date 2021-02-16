@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"periph.io/x/periph/conn/gpio"
 	"periph.io/x/periph/conn/i2c"
 	"periph.io/x/periph/conn/i2c/i2creg"
@@ -16,6 +17,20 @@ import (
 	"periph.io/x/periph/conn/pin/pinreg"
 	"periph.io/x/periph/host"
 )
+
+// InfluxToken is injected at build time.
+var InfluxToken string
+
+// InfluxEndpoint is injected at build time.
+var InfluxEndpoint string
+
+// InfluxOrg is injected at build time.
+var InfluxOrg string
+
+// InfluxBucket is injected at build time.
+var InfluxBucket string
+
+const deviceID = "office"
 
 func printPin(fn string, p pin.Pin) {
 	name, pos := pinreg.Position(p)
@@ -27,6 +42,10 @@ func printPin(fn string, p pin.Pin) {
 }
 
 func main() {
+	influxClient := influxdb2.NewClient(InfluxEndpoint, InfluxToken)
+	defer influxClient.Close()
+	writeAPI := influxClient.WriteAPI(InfluxOrg, InfluxBucket)
+
 	// Load all the drivers:
 	if _, err := host.Init(); err != nil {
 		log.Fatal(err)
@@ -63,6 +82,7 @@ func main() {
 
 	time.Sleep(1 * time.Second)
 
+	i := 0
 	t := time.NewTicker(1 * time.Second)
 	for l := gpio.Low; ; l = !l {
 		readoutPeriodicMeasureCmd := []byte{sht31.CmdPeriodicReadoutMsb, sht31.CmdPeriodicReadoutLsb}
@@ -73,6 +93,18 @@ func main() {
 		}
 		// @TODO ensure CRC checksums are correct
 		fmt.Println(fmt.Sprintf("Temperature: %d°C; Humidity: %d%%", ToTemperatureCelsius(values), ToRelativeHumidity(values)))
+
+		// write line protocol
+		writeAPI.WriteRecord(fmt.Sprintf("temperature,device=%s value=%d", deviceID, ToTemperatureCelsius(values)))
+		writeAPI.WriteRecord(fmt.Sprintf("humidity,device=%s value=%d", deviceID, ToRelativeHumidity(values)))
+
+		// Flush writes
+		if i > 5*60 {
+			writeAPI.Flush()
+			i = 0
+		} else {
+			i++
+		}
 		<-t.C
 	}
 }
